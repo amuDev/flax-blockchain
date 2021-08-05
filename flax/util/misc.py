@@ -42,3 +42,18 @@ def format_minutes(minutes: int) -> str:
         return format_unit_string("minute", minutes)
 
     return "Unknown"
+
+def format_bytes(bytes: int) -> str:
+
+    if not isinstance(bytes, int) or bytes < 0:
+        return "Invalid"
+
+    LABELS = ("MiB", "GiB", "TiB", "PiB", "EiB", "ZiB", "YiB")
+    BASE = 1024
+    value = bytes / BASE
+    for label in LABELS:
+        value /= BASE
+        if value < BASE:
+            return f"{value:.3f} {label}"
+
+    return f"{value:.3f} {LABELS[-1]}"

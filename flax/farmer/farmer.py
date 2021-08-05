@@ -189,3 +189,21 @@ class Farmer:
                 )
             time_slept += 1
             await asyncio.sleep(1)
+
+    async def get_harvesters(self) -> Dict:
+        harvesters: List = []
+        for connection in self.server.get_connections(NodeType.HARVESTER):
+            self.log.debug(f"get_harvesters host: {connection.peer_host}, node_id: {connection.peer_node_id}")
+            cache_entry = await self.get_cached_harvesters(connection)
+            if cache_entry.data is not None:
+                harvester_object: dict = dict(cache_entry.data)
+                harvester_object["connection"] = {
+                    "node_id": connection.peer_node_id.hex(),
+                    "host": connection.peer_host,
+                    "port": connection.peer_port,
+                }
+                harvesters.append(harvester_object)
+            else:
+                self.log.debug(f"get_harvesters no cache: {connection.peer_host}, node_id: {connection.peer_node_id}")
+
+        return {"harvesters": harvesters}
