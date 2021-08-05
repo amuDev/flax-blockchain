@@ -17,8 +17,7 @@ from flax.util.network import is_localhost
 
 SECONDS_PER_BLOCK = (24 * 3600) / 4608
 
-
-async def get_harvesters(farmer_rpc_port: Optional[int]) -> Optional[Dict[str, Any]]:
+async def get_harvesters(farmer_rpc_port: int) -> Optional[Dict[str, Any]]:
     try:
         config = load_config(DEFAULT_ROOT_PATH, "config.yaml")
         self_hostname = config["self_hostname"]
@@ -34,28 +33,6 @@ async def get_harvesters(farmer_rpc_port: Optional[int]) -> Optional[Dict[str, A
         return None
     farmer_client.close()
     await farmer_client.await_closed()
-    return plots
-
-
-async def get_plots(harvester_rpc_port: int) -> Optional[Dict[str, Any]]:
-    plots = None
-    try:
-        config = load_config(DEFAULT_ROOT_PATH, "config.yaml")
-        self_hostname = config["self_hostname"]
-        if harvester_rpc_port is None:
-            harvester_rpc_port = config["harvester"]["rpc_port"]
-        harvester_client = await HarvesterRpcClient.create(
-            self_hostname, uint16(harvester_rpc_port), DEFAULT_ROOT_PATH, config
-        )
-        plots = await harvester_client.get_plots()
-    except Exception as e:
-        if isinstance(e, aiohttp.ClientConnectorError):
-            print(f"Connection error. Check if harvester is running at {harvester_rpc_port}")
-        else:
-            print(f"Exception from 'harvester' {e}")
-
-    harvester_client.close()
-    await harvester_client.await_closed()
     return plots
 
 

@@ -23,6 +23,8 @@ from flax.wallet.derive_keys import master_sk_to_farmer_sk, master_sk_to_pool_sk
 
 log = logging.getLogger(__name__)
 
+UPDATE_HARVESTER_CACHE_INTERVAL: int = 60
+
 
 """
 HARVESTER PROTOCOL (FARMER <-> HARVESTER)
@@ -90,6 +92,8 @@ class Farmer:
         if len(self.pool_sks_map) == 0:
             error_str = "No keys exist. Please run 'flax keys generate' or open the UI."
             raise RuntimeError(error_str)
+
+        self.harvester_cache: Dict[str, Dict[str, Tuple[Dict, float]]] = {}
 
     async def _start(self):
         self.cache_clear_task = asyncio.create_task(self._periodically_clear_cache_task())
@@ -205,5 +209,68 @@ class Farmer:
                 harvesters.append(harvester_object)
             else:
                 self.log.debug(f"get_harvesters no cache: {connection.peer_host}, node_id: {connection.peer_node_id}")
+
+        return {"harvesters": harvesters}
+    
+    async def update_cached_harvesters(self):
+        remove_hosts = []
+        for host, host_cache in self.harvester_cache.items():
+            remove_peers = []
+            for peer_id, peer_cache in host_cache.items():
+                _, last_update = peer_cache
+                if time.time() - last_update > UPDATE_HARVESTER_CACHE_INTERVAL * 10:
+                    remove_peers.append(peer_id)
+            for key in remove_peers:
+                del host_cache[key]
+            if len(host_cache) == 0:
+                remove_hosts.append(host)
+        for key in remove_hosts:
+            del self.harvester_cache[key]
+        for connection in self.server.get_connection():
+            if connection.connection_type != NodeType.HARVESTER:
+                continue
+            cache_entry = await self.get_cached_harvesters(connection)
+            if cache_entry is None or time.time() - cache_entry[1] > UPDATE_HARVESTER_CACHE_INTERVAL:
+                response = await connection.request_plots(harvester_protocol.RequestPlots(), timeout=5)
+                if response is not None:
+                    if isinstance(response, harvester_protocol.RespondPlots):
+                        if connection.peer_host not in self.harvester_cache:
+                            self.harvester_cache[connection.peer_host] = {}
+
+                        self.harvester_cache[connection.peer_host][connection.peer_node_id.hex()] = (
+                            response.to_json_dict(),
+                            time.time(),
+                        )
+                    else:
+                        self.log.error(
+                            f"Invalid response from harvester:"
+                            f"peer_host {connection.peer_host}, peer_node_id {connection.peer_node_id}"
+                        )
+                else:
+                    self.log.error(
+                        "Harvester did not respond. You might need to update harvester to the latest version"
+                    )
+
+    async def get_cached_harvesters(self, connection: WSFlaxConnection) -> Optional[Tuple[Dict, float]]:
+        host_cache = self.harvester_cache.get(connection.peer_host)
+        if host_cache is None:
+            return None
+        return host_cache.get(connection.peer_node_id.hex())
+
+    async def get_harvesters(self) -> Dict:
+        harvesters: List = []
+        for connection in self.server.get_connections():
+            if connection.connection_type != NodeType.HARVESTER:
+                continue
+
+            cache_entry = await self.get_cached_harvesters(connection)
+            if cache_entry is not None:
+                harvester_object: dict = dict(cache_entry[0])
+                harvester_object["connection"] = {
+                    "node_id": connection.peer_node_id.hex(),
+                    "host": connection.peer_host,
+                    "port": connection.peer_port,
+                }
+                harvesters.append(harvester_object)
 
         return {"harvesters": harvesters}
